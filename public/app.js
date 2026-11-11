@@ -779,6 +779,278 @@ function setTab(t) {
   render();
 }
 
+/* ---------------- relatórios ---------------- */
+let currentReportTab = 'meios';
+
+function openReport(tab = 'meios') {
+  currentReportTab = tab;
+  const dlg = $('#dlg-report');
+  if (!dlg) return;
+  if (!dlg.open) dlg.showModal();
+  renderReportView();
+}
+
+function closeReport() {
+  const dlg = $('#dlg-report');
+  if (dlg && dlg.open) dlg.close();
+}
+
+function renderReportView() {
+  const bMeios = $('#btn-rep-meios'), bOcorr = $('#btn-rep-ocorr');
+  if (bMeios) bMeios.setAttribute('aria-current', currentReportTab === 'meios');
+  if (bOcorr) bOcorr.setAttribute('aria-current', currentReportTab === 'ocorr');
+  
+  const title = $('#report-modal-title'), sub = $('#report-modal-sub'), body = $('#report-body');
+  if (!body) return;
+
+  const corp = S.cfg?.corporacao || 'Corpo de Bombeiros';
+  const agoraStr = new Date().toLocaleString('pt-PT', { dateStyle: 'full', timeStyle: 'short' });
+
+  if (currentReportTab === 'meios') {
+    if (title) title.textContent = 'Relatório de Viaturas & Tripulações';
+    if (sub) sub.textContent = `${corp} • Emitido a ${agoraStr}`;
+    body.innerHTML = generateMeiosReportHtml(corp, agoraStr);
+  } else {
+    if (title) title.textContent = 'Ponto de Situação de Ocorrências & Meios';
+    if (sub) sub.textContent = `${corp} • Emitido a ${agoraStr}`;
+    body.innerHTML = generateOccReportHtml(corp, agoraStr);
+  }
+}
+
+function generateMeiosReportHtml(corp, dataHora) {
+  const ativos = S.membros.filter((m) => m.ativo);
+  const atrib = ativos.filter((m) => m.veiculo);
+  const livres = ativos.filter((m) => !m.veiculo);
+  const emOcorr = S.veiculos.filter((v) => v.estado === 'Em ocorrência');
+  const disp = S.veiculos.filter((v) => v.estado === 'Disponível');
+
+  const rows = S.veiculos.map((v) => {
+    const occ = v.ocorrencia && S.O[v.ocorrencia];
+    const crew = ativos.filter((m) => m.veiculo === v.id);
+    const crewHtml = crew.length
+      ? `<ul class="rep-crew-list">${crew.map((m) => `
+          <li class="rep-crew-item">
+            <span class="dot ${dotCls(m.estado)}"></span>
+            <b>${esc(m.nome)}</b> ${postoTag(m.id)} ${m.numero ? `<small style="color:var(--muted)">(${esc(m.numero)})</small>` : ''}
+          </li>`).join('')}</ul>`
+      : '<span class="coords">Sem tripulação atribuída</span>';
+
+    const occHtml = occ
+      ? `<b style="color:var(--red)">🚨 ${esc(occ.tipo)}</b>${occ.sado ? ` (SADO ${esc(occ.sado)})` : ''}<br><small style="color:var(--muted)">${esc(occ.morada || 'Sem morada')}</small>`
+      : '<span class="coords">Nenhuma</span>';
+
+    return `<tr>
+      <td><b>${esc(v.sigla)}</b><br><small style="color:var(--muted)">${esc(v.tipo)}</small></td>
+      <td><span class="tag ${v.estado === 'Em ocorrência' ? 'st-curso' : v.estado === 'Disponível' ? 'st-aberta' : 'st-concluida'}">${esc(v.estado)}</span></td>
+      <td>${occHtml}</td>
+      <td>${crewHtml}</td>
+    </tr>`;
+  }).join('');
+
+  const livresRows = livres.length ? livres.map((m) => `
+    <tr>
+      <td><b>${esc(m.nome)}</b></td>
+      <td>${esc(m.numero || '---')}</td>
+      <td>${postoTag(m.id)}</td>
+      <td><span class="dot ${dotCls(m.estado)}"></span> ${esc(m.estado)}</td>
+    </tr>`).join('') : '<tr><td colspan="4" class="coords" style="padding:12px;text-align:center">Não há elementos livres (todos estão distribuídos pelas viaturas).</td></tr>';
+
+  return `
+  <div class="rep-doc">
+    <div class="rep-header">
+      <div>
+        <h3>${esc(corp)}</h3>
+        <b>Distribuição de Meios e Tripulações Operacionais</b>
+      </div>
+      <div class="meta">
+        <div>Data: <b>${dataHora}</b></div>
+        <div>Total de Viaturas: <b>${S.veiculos.length}</b></div>
+        <div>Total Elementos Ativos: <b>${ativos.length}</b></div>
+      </div>
+    </div>
+
+    <div class="rep-kpi-grid">
+      <div class="rep-kpi"><b>${S.veiculos.length}</b><span>Total Viaturas</span></div>
+      <div class="rep-kpi ${emOcorr.length ? 'crit' : ''}"><b>${emOcorr.length}</b><span>Em Ocorrência</span></div>
+      <div class="rep-kpi"><b>${disp.length}</b><span>Disponíveis</span></div>
+      <div class="rep-kpi"><b>${atrib.length}</b><span>Tripulantes Mobilizados</span></div>
+      <div class="rep-kpi ${livres.length ? 'warn' : ''}"><b>${livres.length}</b><span>Bombeiros de Reserva</span></div>
+    </div>
+
+    <div class="rep-sec">
+      <div class="rep-sec-title"><b>1. Viaturas e Elementos Atribuídos</b> <span class="cnt">(${S.veiculos.length} viaturas)</span></div>
+      <table class="rep-table">
+        <thead>
+          <tr>
+            <th style="width:130px">Viatura</th>
+            <th style="width:140px">Estado</th>
+            <th style="width:230px">Ocorrência</th>
+            <th>Tripulação Atribuída</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="4" class="coords">Sem viaturas registadas.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="rep-sec">
+      <div class="rep-sec-title"><b>2. Elementos Disponíveis no Quartel (Reserva Operacional)</b> <span class="cnt">(${livres.length} elementos)</span></div>
+      <table class="rep-table">
+        <thead>
+          <tr>
+            <th>Nome do Bombeiro</th>
+            <th style="width:150px">N.º Mecanográfico</th>
+            <th style="width:130px">Posto</th>
+            <th style="width:140px">Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${livresRows}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function generateOccReportHtml(corp, dataHora) {
+  const ativas = S.ocorr.filter((o) => o.estado !== 'Concluída');
+  const abertas = S.ocorr.filter((o) => o.estado === 'Aberta').sort((a, b) => a.prioridade - b.prioridade);
+  const emCurso = S.ocorr.filter((o) => o.estado === 'Em curso').sort((a, b) => a.prioridade - b.prioridade);
+  const concluidas = S.ocorr.filter((o) => o.estado === 'Concluída').slice(0, 15);
+  const veiEmOcorr = S.veiculos.filter((v) => v.ocorrencia);
+
+  const cardOcc = (o) => {
+    const viaturas = S.veiculos.filter((v) => v.ocorrencia === o.id);
+    const totalBombeiros = viaturas.reduce((acc, v) => acc + S.membros.filter((m) => m.veiculo === v.id && m.ativo).length, 0);
+
+    const viaturasHtml = viaturas.length
+      ? viaturas.map((v) => {
+          const crew = S.membros.filter((m) => m.veiculo === v.id && m.ativo);
+          return `<div style="margin-top:4px">
+            <b>🚒 ${esc(v.sigla)}</b> (${esc(v.tipo)}) - 
+            <small>${crew.map((m) => esc(m.nome)).join(', ') || 'Sem tripulação'}</small>
+          </div>`;
+        }).join('')
+      : '<span class="coords" style="color:var(--red);font-weight:600">⚠️ Nenhum meio no local</span>';
+
+    return `
+    <div class="rep-occ-card pr${o.prioridade}">
+      <div class="rep-occ-head">
+        <div>
+          <b>${esc(o.tipo)}</b>
+          <span class="tag prio pr${o.prioridade}">Prioridade ${PRIO_OCC[o.prioridade]}</span>
+          <span class="tag ${stCls(o.estado)}">${esc(o.estado)}</span>
+          ${o.sado ? `<span class="tag">SADO ${esc(o.sado)}</span>` : ''}
+        </div>
+        <span class="coords">Alerta: ${hora(o.ts)}</span>
+      </div>
+      <div class="rep-occ-meta">
+        <div>📍 <b>Local:</b> ${esc(o.morada || o.lat.toFixed(5) + ', ' + o.lng.toFixed(5))}</div>
+        ${o.por ? `<div>👤 <b>Registado por:</b> ${esc(nm(o.por))}</div>` : ''}
+      </div>
+      ${o.descricao ? `<p style="margin:6px 0;font-size:13px">${esc(o.descricao)}</p>` : ''}
+      <div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--line)">
+        <span style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--muted)">Meios Atribuídos (${viaturas.length} meios • ${totalBombeiros} operacionais):</span>
+        ${viaturasHtml}
+      </div>
+    </div>`;
+  };
+
+  return `
+  <div class="rep-doc">
+    <div class="rep-header">
+      <div>
+        <h3>${esc(corp)}</h3>
+        <b>Ponto de Situação de Ocorrências & Meios Mobilizados</b>
+      </div>
+      <div class="meta">
+        <div>Data: <b>${dataHora}</b></div>
+        <div>Total Ocorrências Ativas: <b>${ativas.length}</b></div>
+        <div>Total Meios Empenhados: <b>${veiEmOcorr.length}</b></div>
+      </div>
+    </div>
+
+    <div class="rep-kpi-grid">
+      <div class="rep-kpi crit"><b>${ativas.length}</b><span>Total Ativas</span></div>
+      <div class="rep-kpi warn"><b>${abertas.length}</b><span>Em Espera (Abertas)</span></div>
+      <div class="rep-kpi"><b>${emCurso.length}</b><span>Em Curso</span></div>
+      <div class="rep-kpi"><b>${veiEmOcorr.length}</b><span>Viaturas no Terreno</span></div>
+      <div class="rep-kpi"><b>${concluidas.length}</b><span>Concluídas Recentes</span></div>
+    </div>
+
+    <div class="rep-sec">
+      <div class="rep-sec-title"><b>1. Ocorrências Em Espera / Aguardar Meios</b> <span class="cnt">(${abertas.length} ocorrências)</span></div>
+      ${abertas.length ? abertas.map(cardOcc).join('') : '<p class="coords">Nenhuma ocorrência em espera.</p>'}
+    </div>
+
+    <div class="rep-sec">
+      <div class="rep-sec-title"><b>2. Ocorrências Em Curso</b> <span class="cnt">(${emCurso.length} ocorrências)</span></div>
+      ${emCurso.length ? emCurso.map(cardOcc).join('') : '<p class="coords">Nenhuma ocorrência em curso no momento.</p>'}
+    </div>
+
+    ${concluidas.length ? `
+    <div class="rep-sec">
+      <div class="rep-sec-title"><b>3. Ocorrências Concluídas Recentes</b> <span class="cnt">(${concluidas.length} ocorrências)</span></div>
+      <table class="rep-table">
+        <thead>
+          <tr>
+            <th>Tipo</th>
+            <th>SADO</th>
+            <th>Morada / Referência</th>
+            <th>Hora Registo</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${concluidas.map((o) => `<tr>
+            <td><b>${esc(o.tipo)}</b></td>
+            <td>${esc(o.sado || '---')}</td>
+            <td>${esc(o.morada || '---')}</td>
+            <td>${hora(o.ts)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : ''}
+  </div>`;
+}
+
+function buildReportPlainText() {
+  const corp = S.cfg?.corporacao || 'Corpo de Bombeiros';
+  const agoraStr = new Date().toLocaleString('pt-PT');
+  const ativos = S.membros.filter((m) => m.ativo);
+
+  if (currentReportTab === 'meios') {
+    let t = `*PONTO DE SITUAÇÃO - TRIPULAÇÕES & MEIOS*\n${corp}\nData: ${agoraStr}\n\n`;
+    t += `VIATURAS & TRIPULAÇÕES:\n`;
+    for (const v of S.veiculos) {
+      const crew = ativos.filter((m) => m.veiculo === v.id);
+      const occ = v.ocorrencia && S.O[v.ocorrencia];
+      t += `• *${v.sigla}* (${v.tipo}) - [${v.estado}]`;
+      if (occ) t += ` -> Ocorrência: ${occ.tipo} (${occ.morada || 'Sem morada'})`;
+      t += `\n  Tripulação: ${crew.map((m) => m.nome).join(', ') || 'Sem tripulação'}\n`;
+    }
+    const livres = ativos.filter((m) => !m.veiculo);
+    t += `\nELEMENTOS DISPONÍVEIS NO QUARTEL (${livres.length}):\n`;
+    t += livres.map((m) => `• ${m.nome} (${m.posto})`).join('\n') || 'Nenhum';
+    return t;
+  } else {
+    const abertas = S.ocorr.filter((o) => o.estado === 'Aberta');
+    const emCurso = S.ocorr.filter((o) => o.estado === 'Em curso');
+    let t = `*PONTO DE SITUAÇÃO - OCORRÊNCIAS*\n${corp}\nData: ${agoraStr}\n\n`;
+    t += `OCORRÊNCIAS EM ESPERA (${abertas.length}):\n`;
+    for (const o of abertas) {
+      const v = S.veiculos.filter((x) => x.ocorrencia === o.id).map((x) => x.sigla).join(', ') || 'Nenhum meio';
+      t += `• [P${o.prioridade}] ${o.tipo} - ${o.morada || 'Sem morada'} | Meios: ${v}\n`;
+    }
+    t += `\nOCORRÊNCIAS EM CURSO (${emCurso.length}):\n`;
+    for (const o of emCurso) {
+      const v = S.veiculos.filter((x) => x.ocorrencia === o.id).map((x) => x.sigla).join(', ') || 'Nenhum meio';
+      t += `• [P${o.prioridade}] ${o.tipo} - ${o.morada || 'Sem morada'} | Meios: ${v}\n`;
+    }
+    return t;
+  }
+}
+
 /* ---------------- ações ---------------- */
 const ACT = {
   tab: (_, b) => setTab(b.dataset.v),
@@ -885,6 +1157,19 @@ const ACT = {
   saveView: async () => { const v = Mapa.view(); if (!v) return; if (await W(api('PUT', '/api/config', { mapaCentro: v }))) toast('Vista inicial do mapa guardada'); },
   alertChat: () => { $('#alert').hidden = true; document.title = 'Sala de Operações'; S.chatFilter = 0; $$('[data-act="chatFilter"]').forEach((x) => x.setAttribute('aria-pressed', x.dataset.v === '0')); setTab('chat'); },
   alertOk: () => { $('#alert').hidden = true; document.title = 'Sala de Operações'; },
+  openReportMeios: () => openReport('meios'),
+  openReportOcc: () => openReport('ocorr'),
+  switchReportTab: (_, b) => { currentReportTab = b.dataset.tab; renderReportView(); },
+  closeReport: () => closeReport(),
+  printReport: () => window.print(),
+  copyReportText: async () => {
+    try {
+      await navigator.clipboard.writeText(buildReportPlainText());
+      toast('Resumo copiado para a área de transferência! (Pode colar no WhatsApp/Rádio)');
+    } catch (e) {
+      toast('Não foi possível copiar automaticamente.', 1);
+    }
+  },
 };
 const CHG = {
   myEstado: (_, el) => W(api('PUT', '/api/me/estado', { estado: el.value })),

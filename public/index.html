@@ -36,12 +36,25 @@
     <span class="net" id="net" title="Ligação ao servidor"></span>
     <b id="me-nome"></b>
     <span id="me-posto" class="posto"></span>
+    <div id="me-veiculo-tag" class="me-vei-badge" title="O teu veículo"></div>
     <select id="me-estado" class="estado-sel" data-chg="myEstado" aria-label="O meu estado"></select>
     <button class="btn-top" data-act="logout">Sair</button>
   </div>
 </header>
 
 <main id="main" hidden>
+  <!-- Banner de designação do bombeiro ao fazer login -->
+  <div id="op-banner" class="op-banner" hidden>
+    <div class="op-banner-in">
+      <div class="op-icon">🚒</div>
+      <div class="op-info">
+        <div class="op-title">A tua viatura: <b id="op-vei-sigla">---</b> <span id="op-vei-tipo" class="tag"></span></div>
+        <div class="op-sub" id="op-vei-crew"></div>
+      </div>
+      <div class="op-actions" id="op-vei-actions"></div>
+      <button class="op-dismiss" data-act="dismissOpBanner" title="Fechar aviso">×</button>
+    </div>
+  </div>
   <!-- OCORRÊNCIAS -->
   <section id="v-mapa" class="view on">
     <div class="mapwrap">
@@ -59,6 +72,7 @@
         <button data-act="filter" data-v="ativas" aria-pressed="true">Ativas</button>
         <button data-act="filter" data-v="concluidas" aria-pressed="false">Concluídas</button>
         <button data-act="filter" data-v="todas" aria-pressed="false">Todas</button>
+        <button class="btn ghost linkbtn" data-act="openReportOcc" style="margin-left:auto;font-size:13px;padding:4px 8px" title="Gerar relatório de ocorrências e meios atribuídos">📊 Relatório</button>
       </div>
       <div id="occ-list"></div>
 
@@ -83,12 +97,30 @@
   <!-- MEIOS -->
   <section id="v-meios" class="view page">
     <div class="page-in">
-      <h2>Meios e equipas</h2>
-      <p class="lead">Veículos, estado operacional e tripulação.</p>
+      <div class="meios-header-row">
+        <div>
+          <h2>Meios e equipas</h2>
+          <p class="lead">Distribuição de bombeiros por viatura via <b>arrastar e largar</b>.</p>
+        </div>
+        <div class="row" style="align-items:center">
+          <div class="meios-quick-stats" id="meios-stats"></div>
+          <button class="btn primary" data-act="openReportMeios" style="margin-left:6px" title="Gerar relatório de viaturas e bombeiros atribuídos">📊 Relatório de Tripulações</button>
+        </div>
+      </div>
       <div class="addbar" id="add-vei" hidden>
-        <input id="nv-sigla" class="inp" placeholder="Sigla, ex. VUCI 01" maxlength="20">
-        <select id="nv-tipo" class="inp" aria-label="Tipo de veículo"></select>
-        <button class="btn primary" data-act="addVei">Adicionar veículo</button>
+        <div class="addbar-form">
+          <input id="nv-sigla" class="inp" placeholder="Sigla, ex. VFCI 01" maxlength="20">
+          <select id="nv-tipo" class="inp" aria-label="Tipo de veículo"></select>
+          <button class="btn primary" data-act="addVei">Adicionar veículo</button>
+        </div>
+        <div class="quick-gen-wrap">
+          <span class="quick-label">⚡ Criar rápido:</span>
+          <div class="quick-btns" id="quick-vei-btns"></div>
+          <button class="btn ghost quick-storm-btn" data-act="genStormBatch" title="Cria automaticamente lote de viaturas para tempestade (VFCI, VUCI, VLCI, ABSC, VCOT, VSAT)">⚡ Gerar Lote para Temporal</button>
+        </div>
+      </div>
+      <div id="dnd-info-bar" class="dnd-info-bar">
+        <span>💡 <b>Arrastar & Largar:</b> Pega num bombeiro e larga-o em cima de um veículo. Para retirar, arrasta-o de volta para a lista de elementos ou clica no <b>×</b>.</span>
       </div>
       <div id="meios-list"></div>
     </div>
@@ -207,6 +239,26 @@
     <button class="btn" data-act="occCancel">Cancelar</button>
     <button class="btn red" data-act="occSave" id="occ-save">Registar ocorrência</button>
   </div>
+</dialog>
+
+<!-- DIALOG DE RELATÓRIOS (IMPRESSÃO / PDF / RESUMO) -->
+<dialog id="dlg-report" class="dlg-report">
+  <div class="report-header-bar">
+    <div class="report-title-box">
+      <h2 id="report-modal-title">Relatório Operacional</h2>
+      <small id="report-modal-sub"></small>
+    </div>
+    <div class="report-tabs-nav">
+      <button class="btn" data-act="switchReportTab" data-tab="meios" id="btn-rep-meios">Viaturas & Tripulações</button>
+      <button class="btn" data-act="switchReportTab" data-tab="ocorr" id="btn-rep-ocorr">Ocorrências & Meios</button>
+    </div>
+    <div class="report-tools">
+      <button class="btn primary" data-act="printReport" title="Imprimir ou exportar para PDF">🖨️ Imprimir / PDF</button>
+      <button class="btn" data-act="copyReportText" title="Copiar resumo em texto simples">📋 Copiar Resumo</button>
+      <button class="btn ghost" data-act="closeReport" style="font-size:20px;line-height:1;padding:4px 8px">✕</button>
+    </div>
+  </div>
+  <div class="report-body" id="report-body"></div>
 </dialog>
 
 <script src="/app.js"></script>
