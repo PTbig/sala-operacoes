@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16212b">
+<title>Sala de Operações</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<!-- Ecrã de entrada / troca de palavra-passe -->
+<section id="gate" class="gate">
+  <div class="gate-card">
+    <div class="dlg-h"><h2>Sala de Operações</h2><small id="gate-sub">Coordenação de ocorrências</small></div>
+    <div id="gate-body" class="gate-msg"><p>A ligar…</p></div>
+  </div>
+</section>
+
+<header class="top" id="top" hidden>
+  <div class="brand"><h1>Sala de Operações</h1><small id="corp"></small></div>
+  <nav class="tabs" aria-label="Secções">
+    <button data-act="tab" data-v="mapa" aria-current="true">Ocorrências</button>
+    <button data-act="tab" data-v="meios">Meios</button>
+    <button data-act="tab" data-v="chat">Chat<span class="badge b-chat" hidden></span></button>
+    <button data-act="tab" data-v="elementos">Elementos</button>
+    <button data-act="tab" data-v="config" class="only-central">Configuração</button>
+  </nav>
+  <div class="me">
+    <span class="net" id="net" title="Ligação ao servidor"></span>
+    <b id="me-nome"></b>
+    <span id="me-posto" class="posto"></span>
+    <select id="me-estado" class="estado-sel" data-chg="myEstado" aria-label="O meu estado"></select>
+    <button class="btn-top" data-act="logout">Sair</button>
+  </div>
+</header>
+
+<main id="main" hidden>
+  <!-- OCORRÊNCIAS -->
+  <section id="v-mapa" class="view on">
+    <div class="mapwrap">
+      <div id="map" aria-label="Mapa de ocorrências"></div>
+      <button class="new-occ" data-act="newOcc" id="btn-new" hidden>Nova ocorrência</button>
+      <div class="pickbar" id="pickbar" hidden>
+        <span>Toque no mapa no local da ocorrência</span>
+        <button class="btn" data-act="pickGeo">Usar a minha localização</button>
+        <button class="btn ghost inv" data-act="pickCancel">Cancelar</button>
+      </div>
+    </div>
+    <div class="side">
+      <div class="stats" id="stats"></div>
+      <div class="seg" role="group" aria-label="Filtro">
+        <button data-act="filter" data-v="ativas" aria-pressed="true">Ativas</button>
+        <button data-act="filter" data-v="concluidas" aria-pressed="false">Concluídas</button>
+        <button data-act="filter" data-v="todas" aria-pressed="false">Todas</button>
+      </div>
+      <div id="occ-list"></div>
+
+      <aside id="detail" class="detail" hidden>
+        <div class="det-top"><button class="btn ghost" data-act="closeDet">‹ Voltar</button></div>
+        <div class="det-scroll">
+          <div id="det-body"></div>
+          <div class="blk"><h3>Registo</h3><ul class="log" id="det-log"></ul></div>
+        </div>
+        <div class="compose">
+          <textarea id="note-txt" class="inp" rows="2" placeholder="Nota ou legenda da foto"></textarea>
+          <div class="row">
+            <button class="btn primary" data-act="addNote">Adicionar nota</button>
+            <label class="btn photo-btn">Adicionar fotos<input type="file" id="photo-in" accept="image/*" multiple></label>
+            <span id="up-status" class="coords"></span>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- MEIOS -->
+  <section id="v-meios" class="view page">
+    <div class="page-in">
+      <h2>Meios e equipas</h2>
+      <p class="lead">Veículos, estado operacional e tripulação.</p>
+      <div class="addbar" id="add-vei" hidden>
+        <input id="nv-sigla" class="inp" placeholder="Sigla, ex. VUCI 01" maxlength="20">
+        <select id="nv-tipo" class="inp" aria-label="Tipo de veículo"></select>
+        <button class="btn primary" data-act="addVei">Adicionar veículo</button>
+      </div>
+      <div id="meios-list"></div>
+    </div>
+  </section>
+
+  <!-- CHAT -->
+  <section id="v-chat" class="view">
+    <div class="chat-top" role="group" aria-label="Filtrar mensagens">
+      <span>Mostrar</span>
+      <button class="btn" data-act="chatFilter" data-v="0" aria-pressed="true">Todas</button>
+      <button class="btn" data-act="chatFilter" data-v="1" aria-pressed="false">Prioritárias e acima</button>
+      <button class="btn" data-act="chatFilter" data-v="2" aria-pressed="false">Urgentes e acima</button>
+      <button class="btn" data-act="chatFilter" data-v="3" aria-pressed="false">Emergência</button>
+    </div>
+    <div id="msgs" aria-live="polite"></div>
+    <div class="chat-compose">
+      <div class="prio-pick" role="group" aria-label="Prioridade da mensagem">
+        <button data-act="msgPrio" data-v="0" aria-pressed="true">Normal</button>
+        <button data-act="msgPrio" data-v="1" aria-pressed="false">Prioritária</button>
+        <button data-act="msgPrio" data-v="2" aria-pressed="false">Urgente</button>
+        <button data-act="msgPrio" data-v="3" aria-pressed="false">Emergência</button>
+        <select id="chat-occ" class="inp" aria-label="Ocorrência relacionada"></select>
+      </div>
+      <div class="chat-row">
+        <textarea id="chat-txt" class="inp" rows="2" placeholder="Escrever mensagem"></textarea>
+        <button class="btn primary send" id="send-btn" data-act="send">Enviar</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ELEMENTOS -->
+  <section id="v-elementos" class="view page">
+    <div class="page-in">
+      <h2>Elementos</h2>
+      <p class="lead">Contas, postos e estado de cada elemento.</p>
+      <div id="el-new" class="panel" hidden>
+        <h3>Criar conta</h3>
+        <div class="grid-form">
+          <label>Nome<input id="nm-nome" class="inp" maxlength="60"></label>
+          <label>Número mecanográfico<input id="nm-num" class="inp" maxlength="20"></label>
+          <label>Utilizador<input id="nm-user" class="inp" maxlength="40" autocapitalize="none" autocomplete="off" placeholder="ex. joao.silva"></label>
+          <label>Posto<select id="nm-posto" class="inp"></select></label>
+          <label>Palavra-passe temporária<span class="row nowrap"><input id="nm-pw" class="inp grow" autocomplete="off"><button class="btn" data-act="genPw">Gerar</button></span></label>
+        </div>
+        <div class="row" style="margin-top:12px"><button class="btn red" data-act="createMember">Criar conta</button></div>
+      </div>
+      <div id="cred" class="cred" hidden></div>
+      <div id="el-list"></div>
+      <div class="panel" style="margin-top:28px">
+        <h3>A minha palavra-passe</h3>
+        <div class="grid-form">
+          <label>Atual<input id="pw-old" type="password" class="inp" autocomplete="current-password"></label>
+          <label>Nova (mín. 10 caracteres)<input id="pw-new" type="password" class="inp" autocomplete="new-password"></label>
+        </div>
+        <div class="row" style="margin-top:12px"><button class="btn primary" data-act="changePw">Mudar palavra-passe</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONFIGURAÇÃO (Central) -->
+  <section id="v-config" class="view page">
+    <div class="page-in">
+      <h2>Configuração</h2>
+      <p class="lead">Ajuste a app à sua corporação. As alterações chegam logo a todos.</p>
+      <div class="panel">
+        <label class="lbl">Nome da corporação<input id="cf-corp" class="inp" maxlength="80"></label>
+        <div class="two" style="margin-top:12px">
+          <label class="lbl">Tipos de ocorrência (um por linha)<textarea id="cf-tocc" class="inp" rows="12"></textarea></label>
+          <label class="lbl">Tipos de veículo (um por linha)<textarea id="cf-tvei" class="inp" rows="12"></textarea></label>
+        </div>
+        <div class="row" style="margin-top:12px"><button class="btn primary" data-act="saveCfg">Guardar configuração</button></div>
+      </div>
+      <div class="panel" style="margin-top:16px">
+        <h3>Vista inicial do mapa</h3>
+        <p class="lead" style="margin:4px 0 10px">Ajuste o mapa em Ocorrências à zona da sua área de atuação e guarde a vista aqui.</p>
+        <button class="btn" data-act="saveView">Guardar a vista atual do mapa</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<nav class="bnav" id="bnav" hidden aria-label="Secções">
+  <button data-act="tab" data-v="mapa" aria-current="true">Ocorrências</button>
+  <button data-act="tab" data-v="meios">Meios</button>
+  <button data-act="tab" data-v="chat">Chat<span class="badge b-chat" hidden></span></button>
+  <button data-act="tab" data-v="elementos">Elementos</button>
+  <button data-act="tab" data-v="config" class="only-central">Config.</button>
+</nav>
+
+<div id="alert" class="alert" role="alert" hidden>
+  <div class="t"><b>Emergência</b><span id="alert-txt"></span></div>
+  <button class="btn" data-act="alertChat">Abrir chat</button>
+  <button class="btn ghost" data-act="alertOk">Tomei conhecimento</button>
+</div>
+<div id="toast" class="toast" role="status" hidden></div>
+<div id="lb" class="lb" hidden data-act="lbClose"><img id="lb-img" alt="Foto da ocorrência"></div>
+
+<dialog id="dlg-occ">
+  <div class="dlg-h"><h2 id="dlg-title">Nova ocorrência</h2></div>
+  <div class="form">
+    <div class="two">
+      <label>Tipo<select id="f-tipo" class="inp"></select></label>
+      <label>Prioridade<select id="f-prio" class="inp">
+        <option value="1">Crítica</option><option value="2" selected>Alta</option><option value="3">Normal</option></select></label>
+    </div>
+    <label>N.º de ocorrência SADO<input id="f-sado" class="inp" maxlength="40" placeholder="Opcional"></label>
+    <label>Morada ou referência<input id="f-morada" class="inp" placeholder="Rua, localidade, ponto de referência"></label>
+    <label>Descrição<textarea id="f-desc" class="inp" rows="3" placeholder="O que se passa, vítimas, riscos, acessos"></textarea></label>
+    <div class="two">
+      <label>Latitude<input id="f-lat" class="inp" inputmode="decimal"></label>
+      <label>Longitude<input id="f-lng" class="inp" inputmode="decimal"></label>
+    </div>
+  </div>
+  <div class="dlg-f">
+    <button class="btn ghost" data-act="occRepick">Marcar no mapa</button>
+    <button class="btn" data-act="occCancel">Cancelar</button>
+    <button class="btn red" data-act="occSave" id="occ-save">Registar ocorrência</button>
+  </div>
+</dialog>
+
+<script src="/app.js"></script>
+</body>
+</html>

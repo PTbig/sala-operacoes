@@ -1,0 +1,7 @@
+# Substitua pelo domínio que aponta para este servidor.
+sala.exemplo.pt {
+	encode gzip
+	reverse_proxy sala:8080 {
+		flush_interval -1
+	}
+}

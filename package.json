@@ -1,0 +1,9 @@
+{
+  "name": "sala-operacoes",
+  "version": "1.0.0",
+  "description": "Coordenação e gestão de ocorrências para corpos de bombeiros",
+  "main": "server.js",
+  "private": true,
+  "engines": { "node": ">=22.13" },
+  "scripts": { "start": "node --disable-warning=ExperimentalWarning server.js" }
+}
