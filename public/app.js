@@ -12,7 +12,8 @@ const EST_EL = ['Disponível', 'Em serviço', 'Indisponível'];
 
 const S = { me: null, cfg: null, M: {}, membros: [], veiculos: [], V: {}, ocorr: [], O: {}, msgs: [], regs: [],
   sel: null, tab: 'mapa', filter: 'ativas', chatFilter: 0, msgPrio: 0, picking: false, editing: null,
-  chatSeen: Date.now(), dirty: false, started: false, forceBottom: false };
+  chatSeen: Date.now(), dirty: false, started: false, forceBottom: false,
+  selectedMemberForAssign: null, dismissedOpBanner: false, dndInitialized: false };
 let es = null, loadT = null;
 
 /* ---------------- utilidades ---------------- */
@@ -126,7 +127,11 @@ async function start() {
   } catch (e) { return; }
   $('#gate').hidden = true; $('#top').hidden = $('#main').hidden = $('#bnav').hidden = false;
   applyCfg();
-  if (!S.started) { S.started = true; await Mapa.init($('#map'), S.cfg, onMapClick); }
+  if (!S.started) {
+    S.started = true;
+    await Mapa.init($('#map'), S.cfg, onMapClick);
+    setupDragAndDrop();
+  }
   openEvents();
   render();
 }
@@ -195,7 +200,11 @@ const Mapa = {
       await loadScript('https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js');
       this.kind = 'leaflet';
       this.map = L.map(el, { zoomControl: true }).setView([c.lat, c.lng], c.zoom);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(this.map);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19,
+        subdomains: 'abcd',
+        attribution: '© OpenStreetMap contributors, © CARTO'
+      }).addTo(this.map);
       this.map.on('click', (e) => onClick({ lat: e.latlng.lat, lng: e.latlng.lng }));
       window.addEventListener('resize', () => this.map.invalidateSize());
     } catch (e) { el.innerHTML = '<p class="empty">Não foi possível carregar o mapa. A lista de ocorrências continua disponível.</p>'; }
@@ -367,27 +376,249 @@ $('#photo-in').addEventListener('change', async (e) => {
   if (ok) { toast(ok > 1 ? ok + ' fotos adicionadas' : 'Foto adicionada'); if (cap) $('#note-txt').value = ''; }
 });
 
-/* ---------------- meios ---------------- */
+/* ---------------- meios e arrastar/largar (drag & drop) ---------------- */
+let draggedMemberId = null;
+let touchGhost = null;
+
+async function assignMember(memberId, vehicleId) {
+  const m = S.M[memberId];
+  const v = S.V[vehicleId];
+  if (!m || !v) return;
+  const prevVehicle = m.veiculo;
+  if (prevVehicle === vehicleId) return;
+
+  // Optimistic update
+  m.veiculo = vehicleId;
+  if (S.me?.id === memberId) S.me.veiculo = vehicleId;
+  S.selectedMemberForAssign = null;
+  renderMeios();
+  renderHeader();
+  renderOpBanner();
+
+  try {
+    await api('POST', `/api/veiculos/${vehicleId}/tripulacao`, { membro: memberId });
+    toast(`${m.nome} atribuído a ${v.sigla}`);
+  } catch (err) {
+    m.veiculo = prevVehicle;
+    if (S.me?.id === memberId) S.me.veiculo = prevVehicle;
+    renderMeios();
+    renderHeader();
+    renderOpBanner();
+    toast(err.message, 1);
+  }
+}
+
+async function unassignMember(memberId) {
+  const m = S.M[memberId];
+  if (!m) return;
+  const prevVehicle = m.veiculo;
+  if (!prevVehicle) return;
+
+  // Optimistic update
+  m.veiculo = null;
+  if (S.me?.id === memberId) S.me.veiculo = null;
+  S.selectedMemberForAssign = null;
+  renderMeios();
+  renderHeader();
+  renderOpBanner();
+
+  try {
+    await api('DELETE', `/api/tripulacao/${memberId}`);
+    toast(`${m.nome} retirado da viatura`);
+  } catch (err) {
+    m.veiculo = prevVehicle;
+    if (S.me?.id === memberId) S.me.veiculo = prevVehicle;
+    renderMeios();
+    renderHeader();
+    renderOpBanner();
+    toast(err.message, 1);
+  }
+}
+
+function setupDragAndDrop() {
+  // Desktop HTML5 Drag & Drop
+  document.addEventListener('dragstart', (e) => {
+    const item = e.target.closest('.drag-item');
+    if (!item || !can('gerirTrip')) return;
+    draggedMemberId = +item.dataset.dragMember;
+    e.dataTransfer.setData('text/plain', String(draggedMemberId));
+    e.dataTransfer.effectAllowed = 'move';
+    item.classList.add('is-dragging');
+  });
+
+  document.addEventListener('dragend', (e) => {
+    const item = e.target.closest('.drag-item');
+    if (item) item.classList.remove('is-dragging');
+    $$('.drag-over').forEach((el) => el.classList.remove('drag-over'));
+    draggedMemberId = null;
+  });
+
+  document.addEventListener('dragover', (e) => {
+    if (!draggedMemberId) return;
+    const dropZone = e.target.closest('[data-drop-vei], [data-drop-unassign]');
+    if (dropZone) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      $$('.drag-over').forEach((el) => { if (el !== dropZone) el.classList.remove('drag-over'); });
+      dropZone.classList.add('drag-over');
+    } else {
+      $$('.drag-over').forEach((el) => el.classList.remove('drag-over'));
+    }
+  });
+
+  document.addEventListener('dragleave', (e) => {
+    const dropZone = e.target.closest('[data-drop-vei], [data-drop-unassign]');
+    if (dropZone && !dropZone.contains(e.relatedTarget)) {
+      dropZone.classList.remove('drag-over');
+    }
+  });
+
+  document.addEventListener('drop', (e) => {
+    const dropZone = e.target.closest('[data-drop-vei], [data-drop-unassign]');
+    if (!dropZone || !draggedMemberId) return;
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const mid = draggedMemberId;
+    draggedMemberId = null;
+    if (dropZone.dataset.dropVei) {
+      assignMember(mid, +dropZone.dataset.dropVei);
+    } else if (dropZone.dataset.dropUnassign) {
+      unassignMember(mid);
+    }
+  });
+
+  // Touch Support (smartphones and tablets)
+  let touchStartX = 0, touchStartY = 0, touchItem = null, isTouching = false;
+  document.addEventListener('touchstart', (e) => {
+    if (!can('gerirTrip')) return;
+    const item = e.target.closest('.drag-item');
+    if (!item) return;
+    touchItem = item;
+    const t = e.touches[0];
+    touchStartX = t.clientX;
+    touchStartY = t.clientY;
+    isTouching = false;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (e) => {
+    if (!touchItem) return;
+    const t = e.touches[0];
+    const dx = Math.abs(t.clientX - touchStartX);
+    const dy = Math.abs(t.clientY - touchStartY);
+    if (!isTouching && (dx > 12 || dy > 12)) {
+      isTouching = true;
+      const mid = +touchItem.dataset.dragMember;
+      draggedMemberId = mid;
+      touchItem.classList.add('is-dragging');
+      touchGhost = document.createElement('div');
+      touchGhost.className = 'touch-ghost';
+      touchGhost.textContent = `🚒 ${S.M[mid]?.nome || 'Elemento'}`;
+      document.body.appendChild(touchGhost);
+    }
+    if (isTouching && touchGhost) {
+      e.preventDefault();
+      touchGhost.style.left = t.clientX + 'px';
+      touchGhost.style.top = t.clientY + 'px';
+      const target = document.elementFromPoint(t.clientX, t.clientY);
+      const dropZone = target?.closest('[data-drop-vei], [data-drop-unassign]');
+      $$('.drag-over').forEach((el) => { if (el !== dropZone) el.classList.remove('drag-over'); });
+      if (dropZone) dropZone.classList.add('drag-over');
+    }
+  }, { passive: false });
+
+  document.addEventListener('touchend', (e) => {
+    if (!touchItem) return;
+    if (isTouching && draggedMemberId) {
+      const t = e.changedTouches[0];
+      const target = document.elementFromPoint(t.clientX, t.clientY);
+      const dropZone = target?.closest('[data-drop-vei], [data-drop-unassign]');
+      const mid = draggedMemberId;
+      if (dropZone) {
+        if (dropZone.dataset.dropVei) assignMember(mid, +dropZone.dataset.dropVei);
+        else if (dropZone.dataset.dropUnassign) unassignMember(mid);
+      }
+    }
+    if (touchGhost) { touchGhost.remove(); touchGhost = null; }
+    if (touchItem) { touchItem.classList.remove('is-dragging'); touchItem = null; }
+    $$('.drag-over').forEach((el) => el.classList.remove('drag-over'));
+    draggedMemberId = null;
+    isTouching = false;
+  });
+}
+
 function busy(el) { const a = document.activeElement; if (el.contains(a) && a.tagName === 'SELECT') { S.dirty = true; return true; } return false; }
+
 function renderMeios() {
   const el = $('#meios-list'); if (busy(el)) return;
   $('#add-vei').hidden = !can('gerirVei');
   const gt = can('gerirTrip'), ativos = S.membros.filter((m) => m.ativo);
+  const livres = ativos.filter((m) => !m.veiculo);
+  const atrib = ativos.filter((m) => m.veiculo);
+
+  // Render quick stats
+  const statsEl = $('#meios-stats');
+  if (statsEl) {
+    statsEl.innerHTML = `
+      <div class="m-stat"><b>${S.veiculos.length}</b><span>Viaturas</span></div>
+      <div class="m-stat"><b>${atrib.length}</b><span>Tripulantes</span></div>
+      <div class="m-stat ${livres.length ? 'crit' : ''}"><b>${livres.length}</b><span>Sem viatura</span></div>`;
+  }
+
+  // Render quick add buttons
+  const qb = $('#quick-vei-btns');
+  if (qb && !qb.children.length && can('gerirVei')) {
+    const tipos = ['VFCI', 'VUCI', 'VLCI', 'ABSC', 'VCOT', 'VSAT', 'VTPT'];
+    qb.innerHTML = tipos.map((t) => `<button type="button" class="quick-btn" data-act="quickAddVei" data-tipo="${t}">+ ${t}</button>`).join('');
+  }
+
+  const selMem = S.selectedMemberForAssign && S.M[S.selectedMemberForAssign];
+
   const card = (v) => {
     const o = v.ocorrencia && S.O[v.ocorrencia];
     const cls = v.estado === 'Em ocorrência' ? 'st-em' : v.estado === 'Inoperacional' ? 'st-inop' : '';
-    const crew = ativos.filter((m) => m.veiculo === v.id), avail = ativos.filter((m) => m.veiculo !== v.id);
-    return `<article class="vei ${cls}"><header><span class="st"></span><div><h3>${esc(v.sigla)}</h3><span class="tipo">${esc(v.tipo)}</span></div>
-      <div class="r">${gt ? `<select class="inp" data-chg="veiEstado" data-id="${v.id}" aria-label="Estado de ${esc(v.sigla)}">${EST_VEI.map((e) => `<option${e === v.estado ? ' selected' : ''}${e === 'Em ocorrência' && !v.ocorrencia ? ' disabled' : ''}>${e}</option>`).join('')}</select>` : `<span class="tag">${esc(v.estado)}</span>`}</div></header>
-      <div class="occlnk">${o ? `<button class="linkbtn" data-act="goOcc" data-id="${v.ocorrencia}">${esc(o.tipo)}${o.morada ? ', ' + esc(o.morada) : ''}</button>` : '<span class="coords">Sem ocorrência atribuída</span>'}</div>
-      <ul class="crew">${crew.length ? crew.map((m) => `<li><span class="dot ${dotCls(m.estado)}" title="${esc(m.estado)}"></span>${esc(m.nome)} ${postoTag(m.id)}${gt ? `<button class="btn ghost x" data-act="crewDel" data-id="${v.id}" data-u="${m.id}" aria-label="Retirar ${esc(m.nome)}">×</button>` : ''}</li>`).join('') : '<li class="none">Sem tripulação</li>'}</ul>
-      ${gt || can('gerirVei') ? `<footer>${gt && avail.length ? `<select class="inp" id="cr-${v.id}" aria-label="Elemento a adicionar">${avail.map((m) => `<option value="${m.id}">${esc(m.nome)}${m.veiculo ? ' (' + esc(S.V[m.veiculo]?.sigla || '') + ')' : ''}</option>`).join('')}</select><button class="btn" data-act="crewAdd" data-id="${v.id}">Adicionar</button>` : ''}
-        ${can('gerirVei') ? `<button class="btn danger" data-act="delVei" data-id="${v.id}">Remover veículo</button>` : ''}</footer>` : ''}
+    const crew = ativos.filter((m) => m.veiculo === v.id);
+    return `<article class="vei ${cls}" data-drop-vei="${v.id}">
+      <header>
+        <span class="st"></span>
+        <div><h3>${esc(v.sigla)}</h3><span class="tipo">${esc(v.tipo)}</span></div>
+        <div class="r">${gt ? `<select class="inp" data-chg="veiEstado" data-id="${v.id}" aria-label="Estado de ${esc(v.sigla)}">${EST_VEI.map((e) => `<option${e === v.estado ? ' selected' : ''}${e === 'Em ocorrência' && !v.ocorrencia ? ' disabled' : ''}>${e}</option>`).join('')}</select>` : `<span class="tag">${esc(v.estado)}</span>`}</div>
+      </header>
+      <div class="occlnk">${o ? `<button class="linkbtn" data-act="goOcc" data-id="${v.ocorrencia}">🚨 ${esc(o.tipo)}${o.morada ? ', ' + esc(o.morada) : ''}</button>` : '<span class="coords">Sem ocorrência atribuída</span>'}</div>
+      <div class="drop-helper">➕ Largar para adicionar a ${esc(v.sigla)}</div>
+      <ul class="crew">${crew.length ? crew.map((m) => `
+        <li class="drag-item" draggable="${gt}" data-drag-member="${m.id}" data-from-vei="${v.id}">
+          ${gt ? '<span class="drag-handle" title="Arrastar">⠿</span>' : ''}
+          <span class="dot ${dotCls(m.estado)}" title="${esc(m.estado)}"></span>
+          <span style="font-weight:600">${esc(m.nome)}</span> ${postoTag(m.id)}
+          ${gt ? `<button class="btn ghost x" data-act="crewDel" data-id="${v.id}" data-u="${m.id}" aria-label="Retirar ${esc(m.nome)}" title="Retirar da viatura">×</button>` : ''}
+        </li>`).join('') : '<li class="none">Sem tripulação (arrasta bombeiros para aqui)</li>'}
+      </ul>
+      ${(gt || can('gerirVei')) ? `<footer>
+        ${gt && selMem ? `<button class="quick-assign-btn" data-act="assignSelectedTo" data-id="${v.id}">Atribuir ${esc(selMem.nome.split(' ')[0])} ↵</button>` : ''}
+        ${can('gerirVei') ? `<button class="btn danger" data-act="delVei" data-id="${v.id}">Remover veículo</button>` : ''}
+      </footer>` : ''}
     </article>`;
   };
-  const livres = ativos.filter((m) => !m.veiculo);
-  el.innerHTML = (S.veiculos.length ? `<div class="vgrid">${S.veiculos.map(card).join('')}</div>` : `<p class="empty" style="padding:0">${can('gerirVei') ? 'Ainda não há veículos. Adicione o primeiro acima.' : 'Ainda não há veículos registados.'}</p>`) +
-    `<div class="sect"><h3>Elementos sem veículo</h3>${livres.length ? `<div class="list">${livres.map((m) => `<div class="lrow"><span class="dot ${dotCls(m.estado)}"></span><span class="nm">${esc(m.nome)}</span>${postoTag(m.id)}<span class="sub">${esc(m.estado)}</span></div>`).join('')}</div>` : '<p class="coords">Todos os elementos estão atribuídos a um veículo.</p>'}</div>`;
+
+  const poolHtml = livres.length ? livres.map((m) => `
+    <div class="bom-chip drag-item ${S.selectedMemberForAssign === m.id ? 'selected-to-assign' : ''}" draggable="${gt}" data-drag-member="${m.id}" data-act="toggleSelectMember" data-id="${m.id}" title="${gt ? 'Arrasta para uma viatura ou clica para selecionar' : ''}">
+      ${gt ? '<span class="drag-handle">⠿</span>' : ''}
+      <span class="dot ${dotCls(m.estado)}" title="${esc(m.estado)}"></span>
+      <b>${esc(m.nome)}</b> ${postoTag(m.id)}
+      <small style="color:var(--muted)">${esc(m.estado)}</small>
+    </div>`).join('') : '<p class="coords" style="padding:10px 12px">Todos os elementos ativos estão distribuídos pelas viaturas.</p>';
+
+  el.innerHTML = (S.veiculos.length ? `<div class="vgrid">${S.veiculos.map(card).join('')}</div>` : `<p class="empty" style="padding:0">${can('gerirVei') ? 'Ainda não há veículos. Adiciona o primeiro acima ou usa o botão "Gerar Lote para Temporal".' : 'Ainda não há veículos registados.'}</p>`) +
+    `<div class="sect">
+      <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h3>Elementos sem veículo (${livres.length})</h3>
+        ${selMem ? `<span class="coords">Selecionado: <b>${esc(selMem.nome)}</b> (clica numa viatura para atribuir) <button class="btn ghost" data-act="cancelSelect" style="padding:2px 6px">Cancelar</button></span>` : (gt ? '<span class="coords">Arrasta para um veículo ou clica para selecionar</span>' : '')}
+      </div>
+      <div class="unassigned-zone" data-drop-unassign="1">
+        <div class="drop-unassign-helper">➕ Largar aqui para retirar da viatura</div>
+        <div class="bom-pool">${poolHtml}</div>
+      </div>
+    </div>`;
 }
 
 /* ---------------- chat ---------------- */
@@ -475,14 +706,63 @@ function renderHeader() {
   const p = $('#me-posto'); p.textContent = POSTOS[S.me.posto]?.n || ''; p.className = 'posto ' + S.me.posto;
   const s = $('#me-estado'); if (document.activeElement !== s) s.innerHTML = opts(EST_EL, S.me.estado);
   if (!S.picking) $('#btn-new').hidden = !can('criarOcorr');
+
+  // Badge da viatura atribuída
+  const vTag = $('#me-veiculo-tag');
+  if (vTag) {
+    const vid = S.me?.veiculo;
+    const v = vid && S.V[vid];
+    if (v) {
+      const isEm = v.estado === 'Em ocorrência';
+      vTag.className = 'me-vei-badge' + (isEm ? ' em-ocorr' : '');
+      vTag.innerHTML = `🚒 <span>${esc(v.sigla)}</span>${isEm ? ' <small style="font-weight:400;opacity:.85">(Em curso)</small>' : ''}`;
+      vTag.setAttribute('data-act', 'myVeiClick');
+      vTag.title = `Estás designado ao veículo ${v.sigla} (${v.tipo}). Clica para ver.`;
+    } else {
+      vTag.className = 'me-vei-badge sem-vei';
+      vTag.innerHTML = `<span>⚠️ Sem viatura</span>`;
+      vTag.setAttribute('data-act', 'myVeiClick');
+      vTag.title = 'Ainda não tens viatura designada. Clica para ver os Meios.';
+    }
+  }
 }
+
+function renderOpBanner() {
+  const banner = $('#op-banner');
+  if (!banner || !S.me) return;
+  if (S.dismissedOpBanner) { banner.hidden = true; return; }
+  const vid = S.me.veiculo;
+  const v = vid && S.V[vid];
+  banner.hidden = false;
+  if (v) {
+    $('#op-vei-sigla').textContent = v.sigla;
+    const occ = v.ocorrencia && S.O[v.ocorrencia];
+    $('#op-vei-tipo').textContent = `${v.tipo} • ${v.estado}`;
+    $('#op-vei-tipo').className = 'tag ' + (v.estado === 'Em ocorrência' ? 'st-curso' : 'st-aberta');
+    const crew = S.membros.filter((m) => m.veiculo === v.id && m.ativo);
+    const crewNames = crew.map((m) => (m.id === S.me.id ? `<b>${esc(m.nome)} (tu)</b>` : esc(m.nome))).join(', ');
+    $('#op-vei-crew').innerHTML = `<b>Tripulação (${crew.length}):</b> ${crewNames || 'Sem outros elementos'}`;
+    let act = `<button class="btn" data-act="tab" data-v="meios">Ver Meios & Tripulações</button>`;
+    if (occ) act = `<button class="btn red" data-act="goOcc" data-id="${occ.id}">🚨 Ocorrência Atribuída (${esc(occ.tipo)})</button>` + act;
+    $('#op-vei-actions').innerHTML = act;
+  } else {
+    $('#op-vei-sigla').textContent = 'Nenhuma';
+    $('#op-vei-tipo').textContent = 'Aguardar Distribuição';
+    $('#op-vei-tipo').className = 'tag';
+    $('#op-vei-crew').textContent = can('gerirTrip')
+      ? 'És Chefe/Comando/Central: acede a Meios para gerar veículos e arrastar bombeiros.'
+      : 'Ainda não tens viatura designada para o temporal. Aguarda distribuição pelo teu Chefe.';
+    $('#op-vei-actions').innerHTML = can('gerirTrip') ? `<button class="btn primary" data-act="tab" data-v="meios">Distribuir Viaturas</button>` : '';
+  }
+}
+
 function renderBadges() {
   const n = S.tab === 'chat' ? 0 : S.msgs.filter((m) => m.ts > S.chatSeen && m.por !== S.me.id).length;
   $$('.b-chat').forEach((b) => { b.hidden = !n; b.textContent = n > 99 ? '99+' : n; });
 }
 function render() {
   if (!S.me || $('#main').hidden) return;
-  renderHeader(); renderMap(); renderList(); if (S.sel) renderDetail();
+  renderHeader(); renderOpBanner(); renderMap(); renderList(); if (S.sel) renderDetail();
   if (S.tab === 'meios') renderMeios();
   if (S.tab === 'chat') renderChat();
   if (S.tab === 'elementos') renderElementos();
@@ -532,9 +812,57 @@ const ACT = {
     const s = $('#nv-sigla').value.trim(); if (!s) { toast('Indica a sigla do veículo.', 1); return; }
     if (await W(api('POST', '/api/veiculos', { sigla: s, tipo: $('#nv-tipo').value }))) { $('#nv-sigla').value = ''; toast('Veículo ' + s.toUpperCase() + ' adicionado'); }
   },
+  quickAddVei: async (tipo, b) => {
+    const t = b?.dataset.tipo || tipo;
+    if (!t) return;
+    const re = new RegExp(`^${t}\\s*(\\d+)`, 'i');
+    let maxN = 0;
+    for (const v of S.veiculos) {
+      const m = v.sigla.match(re);
+      if (m) maxN = Math.max(maxN, parseInt(m[1], 10));
+    }
+    const nextSigla = `${t} ${String(maxN + 1).padStart(2, '0')}`;
+    if (await W(api('POST', '/api/veiculos', { sigla: nextSigla, tipo: t }))) {
+      toast(`Veículo ${nextSigla} criado com sucesso!`);
+    }
+  },
+  genStormBatch: async () => {
+    const batch = [
+      { sigla: 'VFCI 01', tipo: 'VFCI' },
+      { sigla: 'VFCI 02', tipo: 'VFCI' },
+      { sigla: 'VUCI 01', tipo: 'VUCI' },
+      { sigla: 'VLCI 01', tipo: 'VLCI' },
+      { sigla: 'ABSC 01', tipo: 'ABSC' },
+      { sigla: 'VCOT 01', tipo: 'VCOT' },
+      { sigla: 'VSAT 01', tipo: 'VSAT' }
+    ];
+    try {
+      const res = await api('POST', '/api/veiculos/lote', { veiculos: batch });
+      toast(`Lote criado: ${res.criados} novas viaturas operacionais prontas para o temporal.`);
+    } catch (e) {
+      toast(e.message, 1);
+    }
+  },
   delVei: async (id, b) => { if (arm(b)) W(api('DELETE', '/api/veiculos/' + id)); },
-  crewAdd: (id) => { const u = +$('#cr-' + id)?.value; if (u) W(api('POST', `/api/veiculos/${id}/tripulacao`, { membro: u })); },
-  crewDel: (id, b) => W(api('DELETE', `/api/veiculos/${id}/tripulacao/${b.dataset.u}`)),
+  crewAdd: (id) => { const u = +$('#cr-' + id)?.value; if (u) assignMember(u, +id); },
+  crewDel: (id, b) => unassignMember(+b.dataset.u),
+  dismissOpBanner: () => { S.dismissedOpBanner = true; const b = $('#op-banner'); if (b) b.hidden = true; },
+  myVeiClick: () => {
+    const vid = S.me?.veiculo;
+    const v = vid && S.V[vid];
+    if (v?.ocorrencia && S.O[v.ocorrencia]) ACT.goOcc(v.ocorrencia);
+    else setTab('meios');
+  },
+  toggleSelectMember: (id) => {
+    if (!can('gerirTrip')) return;
+    const nid = +id;
+    S.selectedMemberForAssign = S.selectedMemberForAssign === nid ? null : nid;
+    renderMeios();
+  },
+  cancelSelect: () => { S.selectedMemberForAssign = null; renderMeios(); },
+  assignSelectedTo: (vid) => {
+    if (S.selectedMemberForAssign && vid) assignMember(S.selectedMemberForAssign, +vid);
+  },
   genPw: () => { $('#nm-pw').value = genPw(); },
   createMember: async () => {
     const d = { nome: $('#nm-nome').value.trim(), numero: $('#nm-num').value.trim(), utilizador: $('#nm-user').value.trim().toLowerCase(), posto: $('#nm-posto').value, password: $('#nm-pw').value };
