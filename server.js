@@ -155,7 +155,31 @@ function sessao(req) {
   return r || null;
 }
 const str = (v, max = 500) => (v == null ? '' : String(v).trim().slice(0, max));
-const pub = (m) => ({ id: m.id, utilizador: m.utilizador, nome: m.nome, numero: m.numero, posto: m.posto, estado: m.estado, ativo: !!m.ativo, obrigaTroca: !!m.obriga_troca });
+function pub(m) {
+  let veiculoId = m.veiculo_id !== undefined ? m.veiculo_id : null;
+  if (veiculoId === null && m.id) {
+    const t = q('SELECT veiculo_id FROM tripulacao WHERE membro_id=?').get(m.id);
+    if (t) veiculoId = t.veiculo_id;
+  }
+  let veiculoSigla = null, veiculoOcorrencia = null;
+  if (veiculoId) {
+    const v = q('SELECT sigla, ocorrencia_id FROM veiculos WHERE id=?').get(veiculoId);
+    if (v) { veiculoSigla = v.sigla; veiculoOcorrencia = v.ocorrencia_id; }
+  }
+  return {
+    id: m.id,
+    utilizador: m.utilizador,
+    nome: m.nome,
+    numero: m.numero,
+    posto: m.posto,
+    estado: m.estado,
+    ativo: !!m.ativo,
+    obrigaTroca: !!m.obriga_troca,
+    veiculo: veiculoId,
+    veiculoSigla,
+    veiculoOcorrencia
+  };
+}
 
 function need(me, posto) { if ((POSTOS[me.posto] || 0) < POSTOS[posto]) err(403, 'O teu posto não permite esta ação.'); }
 function logReg(occ, texto, por) {
@@ -362,18 +386,49 @@ route('DELETE', '/api/veiculos/:id', async (req, res, me, p) => {
   q('DELETE FROM veiculos WHERE id=?').run(+p.id);
   broadcast({ col: 'veiculos' }); send(res, 200, {});
 });
+route('POST', '/api/veiculos/lote', async (req, res, me) => {
+  need(me, 'comando');
+  const b = await json(req);
+  const lista = Array.isArray(b.veiculos) ? b.veiculos : [];
+  const cfg = getConfig();
+  let criados = 0;
+  for (const item of lista) {
+    const sigla = str(item.sigla, 20).toUpperCase();
+    const tipo = str(item.tipo, 20);
+    if (sigla && cfg.tiposVeiculo.includes(tipo)) {
+      const existe = q('SELECT id FROM veiculos WHERE sigla=?').get(sigla);
+      if (!existe) {
+        q('INSERT INTO veiculos(sigla,tipo,estado,criado) VALUES(?,?,?,?)').run(sigla, tipo, 'Disponível', now());
+        criados++;
+      }
+    }
+  }
+  broadcast({ col: 'veiculos' });
+  send(res, 201, { criados });
+});
 route('POST', '/api/veiculos/:id/tripulacao', async (req, res, me, p) => {
   need(me, 'chefe');
   const b = await json(req);
   if (!q('SELECT id FROM veiculos WHERE id=?').get(+p.id)) err(404, 'Veículo não encontrado.');
   if (!q('SELECT id FROM membros WHERE id=? AND ativo=1').get(+b.membro)) err(404, 'Elemento não encontrado.');
   q('INSERT OR REPLACE INTO tripulacao(membro_id,veiculo_id) VALUES(?,?)').run(+b.membro, +p.id);
-  broadcast({ col: 'veiculos' }); send(res, 200, {});
+  broadcast({ col: 'veiculos' });
+  broadcast({ col: 'membros' });
+  send(res, 200, {});
 });
 route('DELETE', '/api/veiculos/:id/tripulacao/:membro', async (req, res, me, p) => {
   need(me, 'chefe');
   q('DELETE FROM tripulacao WHERE membro_id=? AND veiculo_id=?').run(+p.membro, +p.id);
-  broadcast({ col: 'veiculos' }); send(res, 200, {});
+  broadcast({ col: 'veiculos' });
+  broadcast({ col: 'membros' });
+  send(res, 200, {});
+});
+route('DELETE', '/api/tripulacao/:membro', async (req, res, me, p) => {
+  need(me, 'chefe');
+  q('DELETE FROM tripulacao WHERE membro_id=?').run(+p.membro);
+  broadcast({ col: 'veiculos' });
+  broadcast({ col: 'membros' });
+  send(res, 200, {});
 });
 
 /* ---- mensagens ---- */
@@ -447,14 +502,14 @@ const CSP = [
   "script-src 'self' https://*.googleapis.com https://*.gstatic.com *.google.com https://*.ggpht.com *.googleusercontent.com 'unsafe-eval' blob: https://cdnjs.cloudflare.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
   "font-src 'self' https://fonts.gstatic.com",
-  "img-src 'self' data: blob: https://*.googleapis.com https://*.gstatic.com *.google.com *.googleusercontent.com https://*.tile.openstreetmap.org https://cdnjs.cloudflare.com",
+  "img-src 'self' data: blob: https://*.googleapis.com https://*.gstatic.com *.google.com *.googleusercontent.com https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://cdnjs.cloudflare.com",
   "connect-src 'self' https://*.googleapis.com *.google.com https://*.gstatic.com data: blob:",
   "frame-src *.google.com", "worker-src blob:", "frame-ancestors 'none'", "base-uri 'self'", "form-action 'self'",
 ].join('; ');
 
 const server = http.createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Content-Security-Policy', CSP);
   res.setHeader('Permissions-Policy', 'geolocation=(self), camera=(self)');
   const url = new URL(req.url, 'http://x');
@@ -481,4 +536,4 @@ const server = http.createServer(async (req, res) => {
   }
 });
 server.listen(PORT, () => console.log(`Sala de Operações a correr na porta ${PORT}${MAPS_KEY ? ' (Google Maps ativo)' : ' (mapa OpenStreetMap; defina GOOGLE_MAPS_API_KEY para Google Maps)'}`));
-for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => { server.close(); db.close(); process.exit(0); });
+for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => { server.close(); db.close(
