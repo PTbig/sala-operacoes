@@ -536,4 +536,4 @@ const server = http.createServer(async (req, res) => {
   }
 });
 server.listen(PORT, () => console.log(`Sala de Operações a correr na porta ${PORT}${MAPS_KEY ? ' (Google Maps ativo)' : ' (mapa OpenStreetMap; defina GOOGLE_MAPS_API_KEY para Google Maps)'}`));
-for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => { server.close(); db.close(
+for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => { server.close(); db.close(); process.exit(0); });
