@@ -200,11 +200,39 @@ const Mapa = {
       await loadScript('https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js');
       this.kind = 'leaflet';
       this.map = L.map(el, { zoomControl: true }).setView([c.lat, c.lng], c.zoom);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+
+      const ruasLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+        maxNativeZoom: 18,
         maxZoom: 19,
-        subdomains: 'abcd',
-        attribution: '© OpenStreetMap contributors, © CARTO'
+        attribution: 'Tiles &copy; Esri'
       }).addTo(this.map);
+
+      const satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxNativeZoom: 18,
+        maxZoom: 19,
+        attribution: 'Tiles &copy; Esri &mdash; Maxar, Earthstar'
+      });
+
+      const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', {
+        maxNativeZoom: 19,
+        maxZoom: 19,
+        subdomains: 'abc',
+        attribution: '&copy; OpenStreetMap contributors, OSM France'
+      });
+
+      const topoLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
+        maxNativeZoom: 18,
+        maxZoom: 19,
+        attribution: 'Tiles &copy; Esri &mdash; USGS'
+      });
+
+      L.control.layers({
+        '🗺️ Ruas': ruasLayer,
+        '🛰️ Satélite': satLayer,
+        '🗺️ OpenStreetMap': osmLayer,
+        '⛰️ Topográfico': topoLayer
+      }, null, { position: 'topleft' }).addTo(this.map);
+
       this.map.on('click', (e) => onClick({ lat: e.latlng.lat, lng: e.latlng.lng }));
       window.addEventListener('resize', () => this.map.invalidateSize());
     } catch (e) { el.innerHTML = '<p class="empty">Não foi possível carregar o mapa. A lista de ocorrências continua disponível.</p>'; }
@@ -263,6 +291,7 @@ function placePick(ll) {
   openDlg();
 }
 function openDlg() {
+  closeReport();
   const o = S.editing && S.O[S.editing];
   $('#dlg-title').textContent = o ? 'Editar ocorrência' : 'Nova ocorrência';
   $('#occ-save').textContent = o ? 'Guardar alterações' : 'Registar ocorrência';
@@ -273,7 +302,22 @@ function openDlg() {
     if (!$('#f-lat').value) { $('#f-lat').value = o.lat; $('#f-lng').value = o.lng; }
     $('#dlg-occ').dataset.filled = '1';
   }
-  if (!$('#dlg-occ').open) $('#dlg-occ').showModal();
+  const dlg = $('#dlg-occ');
+  if (dlg && !dlg.open) {
+    if (typeof dlg.showModal === 'function') dlg.showModal();
+    else dlg.setAttribute('open', '');
+  }
+}
+function closeOccDlg() {
+  const dlg = $('#dlg-occ');
+  if (dlg) {
+    if (dlg.open && typeof dlg.close === 'function') {
+      try { dlg.close(); } catch (_) {}
+    }
+    dlg.removeAttribute('open');
+  }
+  resetDlg();
+  stopPick();
 }
 function resetDlg() {
   ['#f-sado', '#f-morada', '#f-desc', '#f-lat', '#f-lng'].forEach((s) => ($(s).value = ''));
@@ -292,8 +336,8 @@ async function saveOcc() {
   const body = { tipo: $('#f-tipo').value, prioridade: +$('#f-prio').value, sado: $('#f-sado').value, morada: $('#f-morada').value, descricao: $('#f-desc').value, lat, lng };
   const b = $('#occ-save'); b.disabled = true;
   try {
-    if (S.editing) { const id = S.editing; await api('PATCH', '/api/ocorrencias/' + id, body); toast('Ocorrência atualizada'); $('#dlg-occ').close(); resetDlg(); stopPick(); await load(); select(id); }
-    else { const d = await api('POST', '/api/ocorrencias', body); toast('Ocorrência registada'); $('#dlg-occ').close(); resetDlg(); stopPick(); await load(); select(d.id); }
+    if (S.editing) { const id = S.editing; await api('PATCH', '/api/ocorrencias/' + id, body); toast('Ocorrência atualizada'); closeOccDlg(); await load(); select(id); }
+    else { const d = await api('POST', '/api/ocorrencias', body); toast('Ocorrência registada'); closeOccDlg(); await load(); select(d.id); }
   } catch (e) { toast(e.message, 1); } finally { b.disabled = false; }
 }
 
@@ -784,15 +828,23 @@ let currentReportTab = 'meios';
 
 function openReport(tab = 'meios') {
   currentReportTab = tab;
+  closeOccDlg();
   const dlg = $('#dlg-report');
   if (!dlg) return;
-  if (!dlg.open) dlg.showModal();
+  if (!dlg.open) {
+    if (typeof dlg.showModal === 'function') dlg.showModal();
+    else dlg.setAttribute('open', '');
+  }
   renderReportView();
 }
 
 function closeReport() {
   const dlg = $('#dlg-report');
-  if (dlg && dlg.open) dlg.close();
+  if (!dlg) return;
+  if (dlg.open && typeof dlg.close === 'function') {
+    try { dlg.close(); } catch (_) {}
+  }
+  dlg.removeAttribute('open');
 }
 
 function renderReportView() {
@@ -1062,8 +1114,8 @@ const ACT = {
   pickGeo: () => geo((ll) => placePick(ll)),
   pickCancel: () => { stopPick(); if (S.editing) openDlg(); },
   occSave: () => saveOcc(),
-  occCancel: () => { $('#dlg-occ').close(); resetDlg(); stopPick(); },
-  occRepick: () => { $('#dlg-occ').close(); if (S.tab !== 'mapa') setTab('mapa'); S.picking = true; $('#pickbar').hidden = false; $('#btn-new').hidden = true; if (window.innerWidth <= 860) $('#detail').hidden = true; },
+  occCancel: () => closeOccDlg(),
+  occRepick: () => { closeOccDlg(); if (S.tab !== 'mapa') setTab('mapa'); S.picking = true; $('#pickbar').hidden = false; $('#btn-new').hidden = true; if (window.innerWidth <= 860) $('#detail').hidden = true; },
   editOcc: () => { resetDlg(); S.editing = S.sel; const o = S.O[S.sel]; Mapa.setPick({ lat: o.lat, lng: o.lng }); openDlg(); },
   setEst: (_, b) => W(api('PATCH', '/api/ocorrencias/' + S.sel, { estado: b.dataset.v })),
   assign: () => { const v = +$('#as-vei')?.value; if (v) W(api('PATCH', '/api/veiculos/' + v, { ocorrencia: S.sel })); },
@@ -1184,8 +1236,40 @@ document.addEventListener('change', (e) => {
 });
 document.addEventListener('focusout', () => { if (S.dirty) setTimeout(() => { if (S.dirty && document.activeElement?.tagName !== 'SELECT') { S.dirty = false; render(); } }, 0); });
 $('#chat-txt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#lb').hidden) ACT.lbClose(); });
-$('#dlg-occ').addEventListener('cancel', () => { resetDlg(); stopPick(); });
+
+// Gestão de fechar modais com Escape e clique fora (backdrop)
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (!$('#lb')?.hidden) { ACT.lbClose(); return; }
+    const rep = $('#dlg-report');
+    if (rep && (rep.open || rep.getAttribute('open') !== null)) { closeReport(); return; }
+    const occ = $('#dlg-occ');
+    if (occ && (occ.open || occ.getAttribute('open') !== null)) { closeOccDlg(); return; }
+  }
+});
+
+const dlgReport = $('#dlg-report');
+if (dlgReport) {
+  dlgReport.addEventListener('cancel', (e) => { e.preventDefault(); closeReport(); });
+  dlgReport.addEventListener('click', (e) => {
+    const r = dlgReport.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
+      closeReport();
+    }
+  });
+}
+
+const dlgOcc = $('#dlg-occ');
+if (dlgOcc) {
+  dlgOcc.addEventListener('cancel', (e) => { e.preventDefault(); closeOccDlg(); });
+  dlgOcc.addEventListener('click', (e) => {
+    const r = dlgOcc.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
+      closeOccDlg();
+    }
+  });
+}
+
 document.addEventListener('visibilitychange', () => { if (!document.hidden && S.started && es) scheduleLoad(); });
 
 boot();
