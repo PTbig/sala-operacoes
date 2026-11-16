@@ -502,7 +502,7 @@ const CSP = [
   "script-src 'self' https://*.googleapis.com https://*.gstatic.com *.google.com https://*.ggpht.com *.googleusercontent.com 'unsafe-eval' blob: https://cdnjs.cloudflare.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
   "font-src 'self' https://fonts.gstatic.com",
-  "img-src 'self' data: blob: https://*.googleapis.com https://*.gstatic.com *.google.com *.googleusercontent.com https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://cdnjs.cloudflare.com",
+  "img-src 'self' data: blob: https://*.googleapis.com https://*.gstatic.com *.google.com *.googleusercontent.com https://*.tile.openstreetmap.org https://*.tile.openstreetmap.fr https://*.basemaps.cartocdn.com https://*.arcgisonline.com https://server.arcgisonline.com https://cdnjs.cloudflare.com",
   "connect-src 'self' https://*.googleapis.com *.google.com https://*.gstatic.com data: blob:",
   "frame-src *.google.com", "worker-src blob:", "frame-ancestors 'none'", "base-uri 'self'", "form-action 'self'",
 ].join('; ');
